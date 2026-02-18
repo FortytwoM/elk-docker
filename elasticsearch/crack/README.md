@@ -1,12 +1,25 @@
-# x-pack-core patch (optional)
+# x-pack-core patch
 
 Builds a patched `x-pack-core-<version>.jar` that replaces license validation so the stack can run without a trial expiry.
 
-This is **optional**. The stack runs normally without it; with it, Elasticsearch accepts the patched JAR before startup.
+## How it works
 
-## Build the JAR
+The patch is built automatically as part of the Elasticsearch Docker image (multi-stage build in `elasticsearch/Dockerfile`). During `docker compose build`, a temporary stage downloads the Elasticsearch source files from GitHub, patches `LicenseVerifier.java` and `License.java`, recompiles, and repacks the JAR. The patched JAR then replaces the original in the final image.
 
-Use the same version as `ELASTIC_VERSION` in the repo root `.env` (e.g. `9.3.0`).
+No manual steps are required — just `docker compose up -d --build`.
+
+## Force rebuild after version change
+
+When you change `ELASTIC_VERSION` in `.env`, rebuild the image:
+
+```sh
+docker compose build elasticsearch
+docker compose up -d
+```
+
+## Manual build (optional)
+
+If you want to build the JAR separately (e.g. for use outside Docker):
 
 ### Linux / macOS
 
@@ -21,24 +34,3 @@ bash elasticsearch/crack/crack_linux.sh 9.3.0
 ```
 
 Output: `elasticsearch/crack/output/x-pack-core-<version>.crack.jar`.
-
-## Enable the patch in elk-docker
-
-1. In `docker-compose.yml`, under the `elasticsearch` service, **uncomment** the crack volume and env:
-
-   ```yaml
-   volumes:
-     # ...
-     - ./elasticsearch/crack/output/x-pack-core-${ELASTIC_VERSION}.crack.jar:/crack/x-pack-core.crack.jar:ro
-   environment:
-     # ...
-     CRACK_JAR: /crack/x-pack-core.crack.jar
-   ```
-
-2. Restart Elasticsearch:
-
-   ```bash
-   docker compose up -d elasticsearch
-   ```
-
-On startup, the entrypoint will replace `modules/x-pack-core/x-pack-core-<version>.jar` with the patched JAR before Elasticsearch starts.

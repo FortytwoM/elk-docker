@@ -1,49 +1,39 @@
-# docker-elk
+# elk-docker
 
 [![Elastic Stack version](https://img.shields.io/badge/Elastic%20Stack-9.3.0-00bfb3?style=flat&logo=elastic-stack)](https://www.elastic.co/blog/category/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Production-ready single-node Elastic stack (ELK) on Docker Compose.
+Single-node Elastic Stack on Docker Compose — fully automated, TLS everywhere, x-pack license patch included.
 
-**What's included:**
-
-- **Elasticsearch** — full-text search and analytics
-- **Kibana** — visualization (HTTPS enabled by default)
-- **Logstash** — log ingestion pipeline
-- **Fleet Server** — Elastic Agent management
-- **Elastic Package Registry** — local (air-gapped) integration repository
-
-**Security by default:**
-
-- TLS everywhere: Elasticsearch HTTP/Transport, Kibana browser TLS, Fleet Server TLS
-- Kibana encryption keys generated automatically on first start
-- All certificates generated on first start via `elasticsearch-certutil`
+**Includes:** Elasticsearch · Kibana · Logstash · Fleet Server · Elastic Package Registry
 
 ---
 
 ## Quick start
 
 ```sh
-cp .env.example .env
-# Edit .env: change passwords and optionally set DATA_PATH
+git clone https://github.com/FortyTwoM/elk-docker.git
+cd elk-docker
+cp .env.example .env   # set passwords
 docker compose up -d --build
 ```
 
-Open **<https://localhost:5601>** (accept the self-signed certificate).
-Default credentials: `elastic` / `changeme` (change before use — see [Initial setup](#initial-setup)).
+Open **<https://localhost:5601>** (accept the self-signed certificate).  
+Default credentials: `elastic` / `changeme`.
 
 ---
 
 ## How it works
 
-On first `docker compose up`:
+On first `docker compose up --build` the following happens automatically:
 
-1. **tls** — generates X.509 certificates under `tls/certs/` (skipped if already present)
-2. **kibana-init** — generates Kibana encryption keys and writes them to `kibana/config/kibana.yml` (idempotent)
-3. **elasticsearch** — starts; setup waits until it is healthy
-4. **setup** — creates Elasticsearch users and roles from `.env` passwords
-5. **kibana**, **logstash**, **package-registry**, **fleet-server** — start in correct order
+1. **tls** — generates X.509 certificates under `tls/certs/` via `elasticsearch-certutil`
+2. **kibana-init** — generates Kibana encryption keys and injects the CA fingerprint for Fleet into `kibana/config/kibana.yml`
+3. **elasticsearch** — starts with the patched x-pack JAR (baked into the image at build time)
+4. **setup** — creates Elasticsearch users and roles from passwords in `.env`
+5. **kibana · logstash · package-registry · fleet-server** — start in dependency order
 
-No manual steps required.
+No manual steps required after `docker compose up`.
 
 ---
 
@@ -53,24 +43,26 @@ No manual steps required.
 - [Docker Compose](https://docs.docker.com/compose/install/) v2.0+
 - 4 GB RAM recommended (2 GB minimum)
 
-### Linux: required system setting
+### Linux: vm.max_map_count
+
+Elasticsearch requires a higher virtual memory limit:
 
 ```sh
 echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
 sudo sysctl --system
 ```
 
-### Docker Desktop (Windows / macOS): data on external drive
+### Docker Desktop (Windows / macOS): data on an external drive
 
-By default data is stored in `./data/`. To use another drive, set `DATA_PATH` in `.env`:
+All persistent data lives in Docker **named volumes** (`elasticsearch-data`, `fleet-server-state`) inside Docker Desktop's virtual disk image.
 
-```env
-DATA_PATH=E:\docker-elk-data
-```
+To move everything to an external drive:
 
-Make sure the drive is shared: Docker Desktop → Settings → Resources → File sharing.
+1. Docker Desktop → **Settings → Resources → Advanced → Disk image location**
+2. Set the path, e.g. `E:\DockerDesktop`
+3. **Apply & Restart**
 
-To move build cache and images to another drive: Docker Desktop → Settings → Resources → Advanced → **Disk image location**.
+> Bind-mounting external NTFS drives for Elasticsearch data doesn't work on Docker Desktop — WSL2's NTFS layer doesn't support the Unix file locks Lucene requires. Named volumes use ext4 inside the VM and work correctly.
 
 ---
 
@@ -91,9 +83,9 @@ To move build cache and images to another drive: Docker Desktop → Settings →
 
 ## Configuration
 
-All config files are mounted read-only from the host — edit locally and restart the service.
+All config files are mounted read-only — edit locally and restart the service.
 
-| Component     | Config file                              |
+| Component     | File                                     |
 |---------------|------------------------------------------|
 | Elasticsearch | `elasticsearch/config/elasticsearch.yml` |
 | Kibana        | `kibana/config/kibana.yml`               |
@@ -101,87 +93,67 @@ All config files are mounted read-only from the host — edit locally and restar
 | Pipeline      | `logstash/pipeline/logstash.conf`        |
 | TLS instances | `tls/instances.yml`                      |
 
-Environment overrides can also be set directly in `docker-compose.yml`:
-
-```yml
-elasticsearch:
-  environment:
-    cluster.name: my-cluster
-```
-
 ### Fleet and Package Registry
 
-Fleet Server and the local Elastic Package Registry start automatically. Kibana is configured with:
+Fleet Server and the local Elastic Package Registry start automatically.  
+The CA fingerprint for the Fleet output is injected by `kibana-init`, so Fleet appears healthy in Kibana out of the box.
+
+Kibana uses the local registry by default:
 
 ```yaml
 xpack.fleet.isAirGapped: true
 xpack.fleet.registryUrl: "http://package-registry:8080"
 ```
 
-To disable air-gapped mode or use a remote registry, edit `kibana/config/kibana.yml` and restart Kibana.
+To use the public Elastic registry, remove or comment these two lines and restart Kibana.
 
 ---
 
 ## Initial setup
 
-### 1. Change passwords
+### Change passwords
 
-Before or right after the first run, reset the default `changeme` passwords:
+Edit passwords in `.env` before the first run, or reset them afterwards:
 
 ```sh
 docker compose exec elasticsearch \
-  bin/elasticsearch-reset-password --batch --user elastic --url https://localhost:9200
-
-docker compose exec elasticsearch \
-  bin/elasticsearch-reset-password --batch --user logstash_internal --url https://localhost:9200
-
-docker compose exec elasticsearch \
-  bin/elasticsearch-reset-password --batch --user kibana_system --url https://localhost:9200
+  bin/elasticsearch-reset-password --batch --user elastic
 ```
 
-Update the new passwords in `.env`, then restart Logstash and Kibana:
+Update the new values in `.env`, then restart affected services:
 
 ```sh
 docker compose up -d logstash kibana
 ```
 
-### 2. Inject data
-
-Send data to Logstash over TCP port 50000:
+### Send data to Logstash
 
 ```sh
 cat /path/to/logfile.log | nc --send-only localhost 50000
 ```
 
-Or load the sample data from the Kibana home page.
+Or load the built-in sample data from the Kibana home page.
 
 ---
 
 ## Operations
 
-### Stop the stack
+### Stop / start
 
 ```sh
 docker compose down
+docker compose up -d
 ```
 
 ### Remove all data
 
 ```sh
-docker compose down
-rm -rf data   # or the folder set in DATA_PATH
+docker compose down -v   # removes named volumes (elasticsearch-data, fleet-server-state)
 ```
 
-### Rebuild images (after version change or Dockerfile edit)
+### Rebuild after version change
 
-```sh
-docker compose build
-docker compose up -d
-```
-
-### Change the Elastic Stack version
-
-Set `ELASTIC_VERSION` in `.env` and rebuild:
+Edit `ELASTIC_VERSION` in `.env`, then:
 
 ```sh
 docker compose build
@@ -190,15 +162,13 @@ docker compose up -d
 
 ### Re-generate TLS certificates
 
-Remove existing certs and restart the `tls` service:
-
 ```sh
-find tls/certs -mindepth 1 -name ca -prune -o -type d -exec rm -rfv {} +
+find tls/certs -mindepth 1 -delete
 docker compose up tls
 docker compose up -d
 ```
 
-To add a hostname or IP to certificates, edit `tls/instances.yml` first.
+To add a hostname or IP, edit `tls/instances.yml` first.
 
 ### Re-run user setup
 
@@ -229,14 +199,12 @@ curl -XPOST 'https://localhost:9200/_security/user/elastic/_password' \
 
 ## JVM tuning
 
-Default heap sizes are kept low for development. Increase in `docker-compose.yml`:
+| Service       | Variable       | Default |
+|---------------|----------------|---------|
+| Elasticsearch | `ES_JAVA_OPTS` | 512 MB  |
+| Logstash      | `LS_JAVA_OPTS` | 256 MB  |
 
-| Service       | Variable      | Default |
-|---------------|---------------|---------|
-| Elasticsearch | `ES_JAVA_OPTS`| 512 MB  |
-| Logstash      | `LS_JAVA_OPTS`| 256 MB  |
-
-Example — set Elasticsearch to 2 GB:
+Example — 2 GB heap for Elasticsearch:
 
 ```yml
 elasticsearch:
@@ -246,23 +214,40 @@ elasticsearch:
 
 ---
 
-## Optional: x-pack license patch
+## x-pack license patch
 
-A tool to build a patched `x-pack-core` JAR that bypasses license validation is included in `elasticsearch/crack/`.
+The patched `x-pack-core` JAR is compiled and baked into the Elasticsearch image during `docker compose build` via a multi-stage `Dockerfile`. No runtime hacks, no manual steps.
+
+After changing `ELASTIC_VERSION`, rebuild:
 
 ```sh
-# Linux/macOS
-bash elasticsearch/crack/crack_linux.sh 9.3.0
-
-# Windows
-.\elasticsearch\crack\crack_windows.ps1 -Version 9.3.0
+docker compose build elasticsearch
+docker compose up -d elasticsearch
 ```
 
-After building, uncomment the `CRACK_JAR` volume and environment variable in `docker-compose.yml`, then restart Elasticsearch. See [`elasticsearch/crack/README.md`](elasticsearch/crack/README.md) for details.
+See [`elasticsearch/crack/README.md`](elasticsearch/crack/README.md) for details and manual build options.
 
 ---
 
-## Disable paid features (revert to Basic license)
+## Troubleshooting
+
+**Fleet Server shows "Unhealthy" / "Message Signing Key" error**
+
+Clear Fleet Server's state volume and restart:
+
+```sh
+docker compose down
+docker volume rm elk-docker_fleet-server-state
+docker compose up -d
+```
+
+**Elasticsearch won't start on Linux**
+
+Check `vm.max_map_count` (see [Requirements](#linux-vmmax_map_count)).
+
+---
+
+## Revert to Basic license
 
 In Kibana: **Stack Management → License Management → Revert to Basic**.
 
@@ -278,19 +263,20 @@ curl -XPOST 'https://localhost:9200/_license/start_basic?acknowledge=true' \
 
 ## Extensions
 
-Optional extensions are available in the [`extensions/`](extensions/) directory (Metricbeat, Filebeat, Heartbeat, Curator). Each has its own `README.md` with usage instructions.
+Optional extensions (Metricbeat, Filebeat, Heartbeat, Curator) are in [`extensions/`](extensions/). Each has its own `README.md`.
+
+## Plugins
+
+Add a `RUN` line to the relevant `Dockerfile`:
+
+```dockerfile
+RUN elasticsearch-plugin install analysis-icu
+```
+
+Then rebuild: `docker compose build`.
 
 ---
 
-## Adding plugins
+## License
 
-1. Add a `RUN` statement to the relevant `Dockerfile`:
-   ```dockerfile
-   RUN elasticsearch-plugin install analysis-icu
-   ```
-2. Rebuild: `docker compose build`
-
----
-
-[elk-stack]: https://www.elastic.co/elastic-stack/
-[elastic-docker]: https://www.docker.elastic.co/
+[MIT](LICENSE)

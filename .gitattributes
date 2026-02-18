@@ -1,2 +1,11 @@
-# Declare files that will always have LF line endings on checkout.
-*.sh text eol=lf
+# Shell scripts and entrypoints must use LF (Docker runs on Linux)
+*.sh       text eol=lf
+*.conf     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+Dockerfile text eol=lf
+
+# Windows-only files
+*.ps1      text eol=crlf
+*.bat      text eol=crlf
+*.cmd      text eol=crlf

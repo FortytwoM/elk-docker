@@ -1,5 +1,8 @@
-# Runtime data (Elasticsearch indices, Fleet state)
-data/
-
 # Local environment — copy .env.example to .env and fill in your values
 .env
+
+# Runtime data (bind mounts, local state)
+data/
+
+# Generated TLS certificates
+tls/certs/

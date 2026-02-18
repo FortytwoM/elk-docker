@@ -13,7 +13,8 @@ WORKDIR /crack
 COPY --from=baseline /usr/share/elasticsearch/lib /usr/share/elasticsearch/lib
 COPY --from=baseline /usr/share/elasticsearch/modules/x-pack-core /usr/share/elasticsearch/modules/x-pack-core
 COPY build_crack_jar.sh /crack
+RUN sed -i 's/\r$//' /crack/build_crack_jar.sh
 
 RUN apt-get update && apt-get install -y curl unzip >/dev/null
 
-CMD [ "bash", "build_crack_jar.sh" ]
+CMD [ "bash", "/crack/build_crack_jar.sh" ]
