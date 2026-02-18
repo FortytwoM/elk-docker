@@ -1,0 +1,217 @@
+services:
+
+  # TLS: one-off. Generates certificates under tls/certs/ so the rest of the stack can start.
+  tls:
+    build:
+      context: tls/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    user: root  # ensures we can write to the local tls/ directory.
+    init: true
+    volumes:
+      - ./tls/entrypoint.sh:/entrypoint.sh:ro,Z
+      - ./tls/instances.yml:/usr/share/elasticsearch/tls/instances.yml:ro,Z
+      - ./tls/certs:/usr/share/elasticsearch/tls/certs:z
+    restart: "no"
+
+  # Setup: one-off. Creates Elasticsearch users and roles from .env passwords.
+  setup:
+    build:
+      context: setup/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    init: true
+    volumes:
+      - ./setup/entrypoint.sh:/entrypoint.sh:ro,Z
+      - ./setup/lib.sh:/lib.sh:ro,Z
+      - ./setup/roles:/roles:ro,Z
+      # (!) CA certificate. Generate using the 'tls' service.
+      - ./tls/certs/ca/ca.crt:/ca.crt:ro,z
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-}
+      LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
+      METRICBEAT_INTERNAL_PASSWORD: ${METRICBEAT_INTERNAL_PASSWORD:-}
+      FILEBEAT_INTERNAL_PASSWORD: ${FILEBEAT_INTERNAL_PASSWORD:-}
+      HEARTBEAT_INTERNAL_PASSWORD: ${HEARTBEAT_INTERNAL_PASSWORD:-}
+      MONITORING_INTERNAL_PASSWORD: ${MONITORING_INTERNAL_PASSWORD:-}
+      BEATS_SYSTEM_PASSWORD: ${BEATS_SYSTEM_PASSWORD:-}
+    network_mode: service:elasticsearch
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: "no"
+
+  # Kibana init: one-off. Generates encryption keys and patches kibana/config/kibana.yml. Runs after tls.
+  kibana-init:
+    build:
+      context: kibana/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    user: root
+    volumes:
+      - ./kibana/init-keys.sh:/usr/share/kibana/init-keys.sh:ro,Z
+      - ./kibana/config:/kibana-config:z
+    environment:
+      KIBANA_CONFIG: /kibana-config/kibana.yml
+    command: ["/bin/sh", "/usr/share/kibana/init-keys.sh"]
+    depends_on:
+      tls:
+        condition: service_completed_successfully
+    restart: "no"
+
+  elasticsearch:
+    build:
+      context: elasticsearch/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    depends_on:
+      tls:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' -k https://localhost:9200 | grep -q 200 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    volumes:
+      - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro,Z
+      - ${DATA_PATH:-./data}/elasticsearch:/usr/share/elasticsearch/data:Z
+      # (!) TLS certificates. Generate using the 'tls' service.
+      - ./tls/certs/ca/ca.crt:/usr/share/elasticsearch/config/ca.crt:ro,z
+      - ./tls/certs/elasticsearch/elasticsearch.crt:/usr/share/elasticsearch/config/elasticsearch.crt:ro,z
+      - ./tls/certs/elasticsearch/elasticsearch.key:/usr/share/elasticsearch/config/elasticsearch.key:ro,z
+      # Optional: x-pack license patch. Build jar with 'elasticsearch/crack/crack_linux.sh <version>', then uncomment:
+      # - ./elasticsearch/crack/output/x-pack-core-${ELASTIC_VERSION}.crack.jar:/crack/x-pack-core.crack.jar:ro
+    ports:
+      - 9200:9200
+      - 9300:9300
+    environment:
+      node.name: elasticsearch
+      ELASTIC_VERSION: ${ELASTIC_VERSION}
+      # Optional: path to patched x-pack-core JAR inside the container (uncomment when using crack volume above):
+      # CRACK_JAR: /crack/x-pack-core.crack.jar
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      # Bootstrap password.
+      # Used to initialize the keystore during the initial startup of
+      # Elasticsearch. Ignored on subsequent runs.
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-}
+      # Use single node discovery in order to disable production mode and avoid bootstrap checks.
+      # see: https://www.elastic.co/docs/deploy-manage/deploy/self-managed/bootstrap-checks
+      discovery.type: single-node
+    networks:
+      - elk
+    restart: unless-stopped
+
+  logstash:
+    build:
+      context: logstash/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    volumes:
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro,Z
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro,Z
+      # (!) CA certificate. Generate using the 'tls' service.
+      - ./tls/certs/ca/ca.crt:/usr/share/logstash/config/ca.crt:ro,z
+    ports:
+      - 5044:5044
+      - 50000:50000/tcp
+      - 50000:50000/udp
+      - 9600:9600
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  kibana:
+    build:
+      context: kibana/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    depends_on:
+      kibana-init:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' -k https://localhost:5601/api/status | grep -q 200 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    volumes:
+      - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml:ro,Z
+      # (!) TLS certificates. Generate using the 'tls' service.
+      - ./tls/certs/ca/ca.crt:/usr/share/kibana/config/ca.crt:ro,z
+      - ./tls/certs/kibana/kibana.crt:/usr/share/kibana/config/kibana.crt:ro,Z
+      - ./tls/certs/kibana/kibana.key:/usr/share/kibana/config/kibana.key:ro,Z
+    ports:
+      - 5601:5601
+    environment:
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
+    networks:
+      - elk
+    restart: unless-stopped
+
+  # Local package registry for Fleet (air-gapped integrations). Kibana uses it via xpack.fleet.registryUrl.
+  package-registry:
+    image: docker.elastic.co/package-registry/distribution:${ELASTIC_VERSION:-9.3.0}
+    ports:
+      - 8080:8080
+    networks:
+      - elk
+    restart: unless-stopped
+
+  # Fleet Server — Elastic Agent management. Starts with the stack; Kibana Fleet UI connects to it.
+  fleet-server:
+    build:
+      context: extensions/fleet/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    user: root
+    volumes:
+      - ${DATA_PATH:-./data}/fleet-server:/usr/share/elastic-agent/state:Z
+      - type: bind
+        source: /var/lib/docker/containers
+        target: /var/lib/docker/containers
+        read_only: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - ./tls/certs/ca/ca.crt:/usr/share/elastic-agent/ca.crt:ro,z
+      - ./tls/certs/fleet-server/fleet-server.crt:/usr/share/elastic-agent/fleet-server.crt:ro,Z
+      - ./tls/certs/fleet-server/fleet-server.key:/usr/share/elastic-agent/fleet-server.key:ro,Z
+    environment:
+      FLEET_SERVER_ENABLE: '1'
+      FLEET_SERVER_HOST: 0.0.0.0
+      FLEET_SERVER_POLICY_ID: fleet-server-policy
+      FLEET_URL: https://fleet-server:8220
+      FLEET_SERVER_CERT: /usr/share/elastic-agent/fleet-server.crt
+      FLEET_SERVER_CERT_KEY: /usr/share/elastic-agent/fleet-server.key
+      KIBANA_HOST: https://kibana:5601
+      ELASTICSEARCH_HOST: https://elasticsearch:9200
+      ELASTICSEARCH_CA: /usr/share/elastic-agent/ca.crt
+      KIBANA_FLEET_SETUP: '1'
+      ELASTICSEARCH_USERNAME: elastic
+      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:-}
+    ports:
+      - 8220:8220
+    hostname: fleet-server
+    restart: on-failure
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+
+networks:
+  elk:
+    driver: bridge
