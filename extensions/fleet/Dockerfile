@@ -2,7 +2,9 @@ ARG ELASTIC_VERSION
 
 FROM docker.elastic.co/elastic-agent/elastic-agent:${ELASTIC_VERSION:-9.3.0}
 
-# Ensure the 'state' directory exists and is owned by the 'elastic-agent' user,
-# otherwise mounting a named volume in that location creates a directory owned
-# by root:root which the 'elastic-agent' user isn't allowed to write to.
-RUN mkdir state
+USER root
+
+RUN mkdir -p state && chown elastic-agent:elastic-agent state
+
+COPY install-ca.sh /usr/local/bin/install-ca.sh
+RUN sed -i 's/\r$//' /usr/local/bin/install-ca.sh && chmod +x /usr/local/bin/install-ca.sh

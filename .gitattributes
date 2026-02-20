@@ -4,6 +4,7 @@
 *.yml      text eol=lf
 *.yaml     text eol=lf
 Dockerfile text eol=lf
+Makefile   text eol=lf
 
 # Windows-only files
 *.ps1      text eol=crlf

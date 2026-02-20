@@ -1,49 +1,32 @@
 # Metricbeat
 
-Metricbeat is a lightweight shipper that you can install on your servers to periodically collect metrics from the
-operating system and from services running on the server. Metricbeat takes the metrics and statistics that it collects
-and ships them to the output that you specify, such as Elasticsearch or Logstash.
+Collects metrics from the host OS, Docker containers, and stack components (Elasticsearch, Logstash, Kibana).
 
 ## Usage
 
-**This extension requires the `metricbeat_internal`, `monitoring_internal` and `beats_system` users to be created and
-initialized with a password.** In case you haven't done that during the initial startup of the stack, please refer to
-[How to re-execute the setup][setup] to run the setup container again and initialize these users.
+Metricbeat is activated via the `monitoring` profile:
 
-To include Metricbeat in the stack, run Docker Compose from the root of the repository with an additional command line
-argument referencing the `metricbeat-compose.yml` file:
-
-```console
-$ docker compose -f docker-compose.yml -f extensions/metricbeat/metricbeat-compose.yml up
+```sh
+docker compose --profile monitoring up -d --build
 ```
 
-## Configuring Metricbeat
+Or with Make:
 
-The Metricbeat configuration is stored in [`config/metricbeat.yml`](./config/metricbeat.yml). You can modify this file
-with the help of the [Configuration reference][metricbeat-config].
-
-Any change to the Metricbeat configuration requires a restart of the Metricbeat container:
-
-```console
-$ docker compose -f docker-compose.yml -f extensions/metricbeat/metricbeat-compose.yml restart metricbeat
+```sh
+make up-mon
 ```
 
-Please refer to the following documentation page for more details about how to configure Metricbeat inside a
-Docker container: [Run Metricbeat on Docker][metricbeat-docker].
+**Required passwords** in `.env`: `METRICBEAT_INTERNAL_PASSWORD`, `MONITORING_INTERNAL_PASSWORD`, `BEATS_SYSTEM_PASSWORD`.
+
+## Configuration
+
+Edit `extensions/metricbeat/config/metricbeat.yml`, then restart:
+
+```sh
+docker compose restart metricbeat
+```
 
 ## See also
 
-[Metricbeat documentation][metricbeat-doc]
-
-## Screenshots
-
-![stack-monitoring](https://user-images.githubusercontent.com/3299086/202710574-32a3d419-86ea-4334-b6f7-62d7826df18d.png
-"Stack Monitoring")
-![host-dashboard](https://user-images.githubusercontent.com/3299086/202710594-0deccf40-3a9a-4e63-8411-2e0d9cc6ad3a.png
-"Host Overview Dashboard")
-
-[metricbeat-config]: https://www.elastic.co/docs/reference/beats/metricbeat/metricbeat-reference-yml
-[metricbeat-docker]: https://www.elastic.co/docs/reference/beats/metricbeat/running-on-docker
-[metricbeat-doc]: https://www.elastic.co/docs/reference/beats/metricbeat
-
-[setup]: ../../README.md#how-to-re-execute-the-setup
+- [Metricbeat Reference](https://www.elastic.co/docs/reference/beats/metricbeat)
+- [Run on Docker](https://www.elastic.co/docs/reference/beats/metricbeat/running-on-docker)

@@ -7,6 +7,8 @@ Single-node Elastic Stack on Docker Compose — fully automated, TLS everywhere,
 
 **Includes:** Elasticsearch · Kibana · Logstash · Fleet Server · Elastic Package Registry
 
+**Optional (via profiles):** Metricbeat · Filebeat · Heartbeat
+
 ---
 
 ## Quick start
@@ -18,22 +20,41 @@ cp .env.example .env   # set passwords
 docker compose up -d --build
 ```
 
-Open **<https://localhost:5601>** (accept the self-signed certificate).  
+Open **<https://localhost:5601>** (accept the self-signed certificate).
 Default credentials: `elastic` / `changeme`.
+
+### With monitoring (Metricbeat, Filebeat, Heartbeat)
+
+```sh
+docker compose --profile monitoring up -d --build
+```
+
+### Using Make
+
+```sh
+make up          # core stack
+make up-mon      # core + monitoring
+make down        # stop all
+make clean       # stop + remove volumes and images
+make logs        # tail logs
+make status      # show service health
+```
+
+Run `make` to see all available commands.
 
 ---
 
 ## How it works
 
-On first `docker compose up --build` the following happens automatically:
+On first `docker compose up --build`:
 
 1. **tls** — generates X.509 certificates under `tls/certs/` via `elasticsearch-certutil`
-2. **kibana-init** — generates Kibana encryption keys and injects the CA fingerprint for Fleet into `kibana/config/kibana.yml`
+2. **kibana-init** — generates Kibana encryption keys, injects the CA fingerprint for Fleet
 3. **elasticsearch** — starts with the patched x-pack JAR (baked into the image at build time)
 4. **setup** — creates Elasticsearch users and roles from passwords in `.env`
 5. **kibana · logstash · package-registry · fleet-server** — start in dependency order
 
-No manual steps required after `docker compose up`.
+No manual steps required.
 
 ---
 
@@ -45,8 +66,6 @@ No manual steps required after `docker compose up`.
 
 ### Linux: vm.max_map_count
 
-Elasticsearch requires a higher virtual memory limit:
-
 ```sh
 echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
 sudo sysctl --system
@@ -54,7 +73,7 @@ sudo sysctl --system
 
 ### Docker Desktop (Windows / macOS): data on an external drive
 
-All persistent data lives in Docker **named volumes** (`elasticsearch-data`, `fleet-server-state`) inside Docker Desktop's virtual disk image.
+All persistent data lives in Docker **named volumes** inside Docker Desktop's virtual disk image.
 
 To move everything to an external drive:
 
@@ -62,28 +81,30 @@ To move everything to an external drive:
 2. Set the path, e.g. `E:\DockerDesktop`
 3. **Apply & Restart**
 
-> Bind-mounting external NTFS drives for Elasticsearch data doesn't work on Docker Desktop — WSL2's NTFS layer doesn't support the Unix file locks Lucene requires. Named volumes use ext4 inside the VM and work correctly.
+> Bind-mounting external NTFS drives doesn't work for Elasticsearch — WSL2's NTFS layer lacks Unix file locking. Named volumes use ext4 inside the VM and work correctly.
 
 ---
 
 ## Ports
 
-| Port  | Service                       |
-|-------|-------------------------------|
-| 5601  | Kibana (HTTPS)                |
-| 9200  | Elasticsearch HTTP (TLS)      |
-| 9300  | Elasticsearch transport (TLS) |
-| 8220  | Fleet Server                  |
-| 8080  | Elastic Package Registry      |
-| 5044  | Logstash Beats input          |
-| 50000 | Logstash TCP input            |
-| 9600  | Logstash monitoring API       |
+| Port  | Service                       | Bind        |
+|-------|-------------------------------|-------------|
+| 5601  | Kibana (HTTPS)                | 127.0.0.1   |
+| 9200  | Elasticsearch HTTP (TLS)      | 127.0.0.1   |
+| 9300  | Elasticsearch transport (TLS) | 127.0.0.1   |
+| 8220  | Fleet Server                  | 0.0.0.0     |
+| 8080  | Elastic Package Registry      | 127.0.0.1   |
+| 5044  | Logstash Beats input          | 0.0.0.0     |
+| 50000 | Logstash TCP input            | 0.0.0.0     |
+| 9600  | Logstash monitoring API       | 0.0.0.0     |
+
+Elasticsearch, Kibana, and Package Registry bind to `127.0.0.1` by default to prevent accidental exposure. To allow remote access, change the bind address in `docker-compose.yml` (e.g. `0.0.0.0:9200:9200`).
 
 ---
 
 ## Configuration
 
-All config files are mounted read-only — edit locally and restart the service.
+Config files are mounted read-only — edit locally, then restart the service.
 
 | Component     | File                                     |
 |---------------|------------------------------------------|
@@ -95,17 +116,22 @@ All config files are mounted read-only — edit locally and restart the service.
 
 ### Fleet and Package Registry
 
-Fleet Server and the local Elastic Package Registry start automatically.  
-The CA fingerprint for the Fleet output is injected by `kibana-init`, so Fleet appears healthy in Kibana out of the box.
+Fleet Server and the local Elastic Package Registry start automatically.
+The CA fingerprint is injected by `kibana-init`, so Fleet appears healthy out of the box.
 
-Kibana uses the local registry by default:
+To use the public Elastic registry instead of the local one, remove `xpack.fleet.isAirGapped` and `xpack.fleet.registryUrl` from `kibana/config/kibana.yml`.
 
-```yaml
-xpack.fleet.isAirGapped: true
-xpack.fleet.registryUrl: "http://package-registry:8080"
+### Monitoring profile
+
+The `monitoring` profile starts Metricbeat, Filebeat, and Heartbeat. Their configs are in `extensions/*/config/`. Passwords must be set in `.env`:
+
+```ini
+METRICBEAT_INTERNAL_PASSWORD='changeme'
+FILEBEAT_INTERNAL_PASSWORD='changeme'
+HEARTBEAT_INTERNAL_PASSWORD='changeme'
+MONITORING_INTERNAL_PASSWORD='changeme'
+BEATS_SYSTEM_PASSWORD='changeme'
 ```
-
-To use the public Elastic registry, remove or comment these two lines and restart Kibana.
 
 ---
 
@@ -113,14 +139,14 @@ To use the public Elastic registry, remove or comment these two lines and restar
 
 ### Change passwords
 
-Edit passwords in `.env` before the first run, or reset them afterwards:
+Edit `.env` before the first run, or reset afterwards:
 
 ```sh
 docker compose exec elasticsearch \
   bin/elasticsearch-reset-password --batch --user elastic
 ```
 
-Update the new values in `.env`, then restart affected services:
+Update `.env`, then restart affected services:
 
 ```sh
 docker compose up -d logstash kibana
@@ -132,68 +158,42 @@ docker compose up -d logstash kibana
 cat /path/to/logfile.log | nc --send-only localhost 50000
 ```
 
-Or load the built-in sample data from the Kibana home page.
+Or load sample data from the Kibana home page.
 
 ---
 
 ## Operations
 
-### Stop / start
-
 ```sh
+# Stop
 docker compose down
-docker compose up -d
-```
 
-### Remove all data
+# Remove all data (volumes)
+docker compose down -v
 
-```sh
-docker compose down -v   # removes named volumes (elasticsearch-data, fleet-server-state)
-```
+# Rebuild after version change
+docker compose build && docker compose up -d
 
-### Rebuild after version change
+# Regenerate TLS certificates
+rm -rf tls/certs/*/
+docker compose up tls && docker compose up -d
 
-Edit `ELASTIC_VERSION` in `.env`, then:
-
-```sh
-docker compose build
-docker compose up -d
-```
-
-### Re-generate TLS certificates
-
-```sh
-find tls/certs -mindepth 1 -delete
-docker compose up tls
-docker compose up -d
-```
-
-To add a hostname or IP, edit `tls/instances.yml` first.
-
-### Re-run user setup
-
-```sh
+# Re-run user setup
 docker compose up setup
-```
 
-### Regenerate Kibana encryption keys
-
-```sh
+# Regenerate Kibana encryption keys
 docker compose run --rm kibana-init
 docker compose restart kibana
-```
 
-> **Warning:** regenerating keys invalidates previously encrypted saved objects (alerts, reports, connectors).
-
-### Reset a password via API
-
-```sh
+# Reset password via API
 curl -XPOST 'https://localhost:9200/_security/user/elastic/_password' \
   --cacert tls/certs/ca/ca.crt \
   -H 'Content-Type: application/json' \
   -u elastic:<current-password> \
   -d '{"password":"<new-password>"}'
 ```
+
+> **Warning:** regenerating Kibana encryption keys invalidates previously encrypted saved objects.
 
 ---
 
@@ -204,7 +204,7 @@ curl -XPOST 'https://localhost:9200/_security/user/elastic/_password' \
 | Elasticsearch | `ES_JAVA_OPTS` | 512 MB  |
 | Logstash      | `LS_JAVA_OPTS` | 256 MB  |
 
-Example — 2 GB heap for Elasticsearch:
+Example — 2 GB heap:
 
 ```yml
 elasticsearch:
@@ -216,16 +216,16 @@ elasticsearch:
 
 ## x-pack license patch
 
-The patched `x-pack-core` JAR is compiled and baked into the Elasticsearch image during `docker compose build` via a multi-stage `Dockerfile`. No runtime hacks, no manual steps.
+The patched `x-pack-core` JAR is compiled and baked into the Elasticsearch image at build time via a multi-stage `Dockerfile`. No runtime hacks.
 
-After changing `ELASTIC_VERSION`, rebuild:
+After changing `ELASTIC_VERSION`:
 
 ```sh
 docker compose build elasticsearch
 docker compose up -d elasticsearch
 ```
 
-See [`elasticsearch/crack/README.md`](elasticsearch/crack/README.md) for details and manual build options.
+See [`elasticsearch/crack/README.md`](elasticsearch/crack/README.md) for details.
 
 ---
 
@@ -233,25 +233,15 @@ See [`elasticsearch/crack/README.md`](elasticsearch/crack/README.md) for details
 
 **Fleet Server shows "Unhealthy" / "Message Signing Key" error**
 
-Clear Fleet Server's state volume and restart:
-
 ```sh
 docker compose down
 docker volume rm elk-docker_fleet-server-state
 docker compose up -d
 ```
 
-**Elasticsearch won't start on Linux**
+**Elasticsearch won't start on Linux** — check `vm.max_map_count` (see [Requirements](#linux-vmmax_map_count)).
 
-Check `vm.max_map_count` (see [Requirements](#linux-vmmax_map_count)).
-
----
-
-## Revert to Basic license
-
-In Kibana: **Stack Management → License Management → Revert to Basic**.
-
-Or via API:
+**Revert to Basic license**
 
 ```sh
 curl -XPOST 'https://localhost:9200/_license/start_basic?acknowledge=true' \
@@ -261,19 +251,33 @@ curl -XPOST 'https://localhost:9200/_license/start_basic?acknowledge=true' \
 
 ---
 
-## Extensions
+## Project structure
 
-Optional extensions (Metricbeat, Filebeat, Heartbeat, Curator) are in [`extensions/`](extensions/). Each has its own `README.md`.
-
-## Plugins
-
-Add a `RUN` line to the relevant `Dockerfile`:
-
-```dockerfile
-RUN elasticsearch-plugin install analysis-icu
 ```
-
-Then rebuild: `docker compose build`.
+├── docker-compose.yml          Main stack definition
+├── .env.example                Environment template
+├── Makefile                    Shortcuts (make up, make clean, ...)
+├── elasticsearch/
+│   ├── Dockerfile              Multi-stage build with x-pack patch
+│   ├── config/elasticsearch.yml
+│   └── crack/                  License patch sources
+├── kibana/
+│   ├── Dockerfile
+│   ├── config/kibana.yml
+│   └── init-keys.sh            Encryption keys + CA fingerprint injection
+├── logstash/
+│   ├── Dockerfile
+│   ├── config/logstash.yml
+│   └── pipeline/logstash.conf
+├── setup/                      User and role provisioning
+├── tls/                        Certificate generation
+│   └── instances.yml           Hostnames/IPs for certificates
+└── extensions/
+    ├── fleet/                  Fleet Server (always on)
+    ├── metricbeat/             Stack & host monitoring   (profile: monitoring)
+    ├── filebeat/               Docker log collection     (profile: monitoring)
+    └── heartbeat/              Uptime checks             (profile: monitoring)
+```
 
 ---
 

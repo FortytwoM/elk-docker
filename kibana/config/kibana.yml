@@ -17,10 +17,10 @@ server.ssl.certificate: config/kibana.crt
 server.ssl.key: config/kibana.key
 
 # Encryption keys — generated automatically by kibana-init on first run.
-# To regenerate: remove the three lines below, run `docker compose run --rm kibana-init`, restart kibana.
-xpack.security.encryptionKey: b7c5438c85c07f276ecd8f736f480594
-xpack.encryptedSavedObjects.encryptionKey: 0d70fd9265fd41790380a561e6797538
-xpack.reporting.encryptionKey: 40406e214e849db396b6d875cf051191
+# To regenerate: comment out the three lines, run `docker compose run --rm kibana-init`, restart kibana.
+#xpack.security.encryptionKey:
+#xpack.encryptedSavedObjects.encryptionKey:
+#xpack.reporting.encryptionKey:
 
 telemetry.optIn: false
 
@@ -46,8 +46,6 @@ xpack.fleet.packages:
     version: latest
   - name: elastic_agent
     version: latest
-  - name: docker
-    version: latest
 
 xpack.fleet.agentPolicies:
   - name: Fleet Server Policy
@@ -66,6 +64,3 @@ xpack.fleet.agentPolicies:
       - name: elastic_agent-1
         package:
           name: elastic_agent
-      - name: docker-1
-        package:
-          name: docker

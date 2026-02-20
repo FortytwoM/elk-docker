@@ -1,7 +1,3 @@
-## Filebeat configuration
-## https://github.com/elastic/beats/blob/main/deploy/docker/filebeat.docker.yml
-#
-
 name: filebeat
 
 filebeat.config:
@@ -11,8 +7,6 @@ filebeat.config:
 
 filebeat.autodiscover:
   providers:
-    # The Docker autodiscover provider automatically retrieves logs from Docker
-    # containers as they start and stop.
     - type: docker
       hints.enabled: true
       hints.default_config:
@@ -39,19 +33,15 @@ monitoring:
   elasticsearch:
     username: beats_system
     password: ${BEATS_SYSTEM_PASSWORD}
+    ssl:
+      certificate_authorities: [ /usr/share/filebeat/ca.crt ]
 
 output.elasticsearch:
   hosts: [ https://elasticsearch:9200 ]
   username: filebeat_internal
   password: ${FILEBEAT_INTERNAL_PASSWORD}
   ssl:
-    # Using ${path.home} here while monitoring is enabled causes Beats to exit with:
-    #   missing field accessing 'ssl.certificate_authorities.0'
     certificate_authorities: [ /usr/share/filebeat/ca.crt ]
-
-## HTTP endpoint for health checking
-## https://www.elastic.co/docs/reference/beats/filebeat/http-endpoint
-#
 
 http:
   enabled: true

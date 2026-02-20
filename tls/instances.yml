@@ -30,6 +30,14 @@ instances:
   - 127.0.0.1
   - ::1
 
+- name: logstash
+  dns:
+  - logstash
+  - localhost
+  ip:
+  - 127.0.0.1
+  - ::1
+
 - name: apm-server
   dns:
   - apm-server
