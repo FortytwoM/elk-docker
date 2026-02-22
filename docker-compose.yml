@@ -223,7 +223,7 @@ services:
     ports:
       - 8220:8220
     hostname: fleet-server
-    restart: on-failure
+    restart: unless-stopped
     networks:
       - elk
     depends_on:

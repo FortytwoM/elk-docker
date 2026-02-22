@@ -23,4 +23,4 @@ certs/
     └── logstash.key
 ```
 
-To add external IPs/hostnames to the certificates, edit [`instances.yml`](./instances.yml) and regenerate.
+External IPs/hostnames are added automatically when `FLEET_EXTERNAL_HOST` is set in `.env`. To add extra entries manually, edit [`instances.yml`](./instances.yml) and run `make certs`.
