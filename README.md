@@ -48,8 +48,8 @@ Run `make` to see all available commands.
 
 On first `docker compose up --build`:
 
-1. **tls** — generates X.509 certificates under `tls/certs/` via `elasticsearch-certutil`
-2. **kibana-init** — generates Kibana encryption keys, injects the CA fingerprint for Fleet
+1. **tls** — generates X.509 certificates under `tls/certs/` via `elasticsearch-certutil`; if `FLEET_EXTERNAL_HOST` is set, automatically adds it to the certificate SANs
+2. **kibana-init** — copies `kibana.yml` template into a Docker volume, generates encryption keys, injects CA fingerprint, and adds external URLs if `FLEET_EXTERNAL_HOST` is set
 3. **elasticsearch** — starts with the patched x-pack JAR (baked into the image at build time)
 4. **setup** — creates Elasticsearch users and roles from passwords in `.env`
 5. **kibana · logstash · package-registry · fleet-server** — start in dependency order
@@ -87,18 +87,18 @@ To move everything to an external drive:
 
 ## Ports
 
-| Port  | Service                       | Bind        |
-|-------|-------------------------------|-------------|
-| 5601  | Kibana (HTTPS)                | 127.0.0.1   |
-| 9200  | Elasticsearch HTTP (TLS)      | 127.0.0.1   |
-| 9300  | Elasticsearch transport (TLS) | 127.0.0.1   |
-| 8220  | Fleet Server                  | 0.0.0.0     |
-| 8080  | Elastic Package Registry      | 127.0.0.1   |
-| 5044  | Logstash Beats input          | 0.0.0.0     |
-| 50000 | Logstash TCP input            | 0.0.0.0     |
-| 9600  | Logstash monitoring API       | 0.0.0.0     |
+| Port  | Service                       | Bind      |
+|-------|-------------------------------|-----------|
+| 9200  | Elasticsearch HTTP (TLS)      | 0.0.0.0   |
+| 9300  | Elasticsearch transport (TLS) | 127.0.0.1 |
+| 5601  | Kibana (HTTPS)                | 0.0.0.0   |
+| 8220  | Fleet Server (HTTPS)          | 0.0.0.0   |
+| 8080  | Elastic Package Registry      | 127.0.0.1 |
+| 5044  | Logstash Beats input          | 0.0.0.0   |
+| 50000 | Logstash TCP input            | 0.0.0.0   |
+| 9600  | Logstash monitoring API       | 127.0.0.1 |
 
-Elasticsearch, Kibana, and Package Registry bind to `127.0.0.1` by default to prevent accidental exposure. To allow remote access, change the bind address in `docker-compose.yml` (e.g. `0.0.0.0:9200:9200`).
+Package Registry and Logstash monitoring API bind to `127.0.0.1` (local-only). To restrict other services, prefix the port with `127.0.0.1:` in `docker-compose.yml` (e.g. `127.0.0.1:9200:9200`).
 
 ---
 
@@ -106,13 +106,13 @@ Elasticsearch, Kibana, and Package Registry bind to `127.0.0.1` by default to pr
 
 Config files are mounted read-only — edit locally, then restart the service.
 
-| Component     | File                                     |
-|---------------|------------------------------------------|
-| Elasticsearch | `elasticsearch/config/elasticsearch.yml` |
-| Kibana        | `kibana/config/kibana.yml`               |
-| Logstash      | `logstash/config/logstash.yml`           |
-| Pipeline      | `logstash/pipeline/logstash.conf`        |
-| TLS instances | `tls/instances.yml`                      |
+| Component     | File                                     | Notes                                                |
+|---------------|------------------------------------------|------------------------------------------------------|
+| Elasticsearch | `elasticsearch/config/elasticsearch.yml` |                                                      |
+| Kibana        | `kibana/config/kibana.yml`               | Template — `kibana-init` generates the working copy  |
+| Logstash      | `logstash/config/logstash.yml`           |                                                      |
+| Pipeline      | `logstash/pipeline/logstash.conf`        |                                                      |
+| TLS instances | `tls/instances.yml`                      | External IP added automatically from `FLEET_EXTERNAL_HOST` |
 
 ### Fleet and Package Registry
 
@@ -125,32 +125,25 @@ To use the public Elastic registry instead of the local one, remove `xpack.fleet
 
 By default Fleet Server and Elasticsearch URLs use Docker-internal names (`fleet-server:8220`, `elasticsearch:9200`). External agents can't resolve them.
 
-**Step 1.** Set your Docker host's IP in `.env`:
+**Step 1.** Set your Docker host's IP (or hostname) in `.env`:
 
 ```ini
 FLEET_EXTERNAL_HOST=192.168.1.100
 ```
 
-**Step 2.** Add the same IP to `tls/instances.yml` under both `elasticsearch` and `fleet-server`:
-
-```yaml
-- name: fleet-server
-  ip:
-  - 127.0.0.1
-  - ::1
-  - 192.168.1.100   # <-- your host IP
-```
-
-**Step 3.** Regenerate certs and restart:
+**Step 2.** Regenerate certs and restart:
 
 ```sh
 make certs
 docker compose up -d --build
 ```
 
-`kibana-init` will automatically rewrite Fleet Server and Elasticsearch URLs in `kibana.yml` to use `FLEET_EXTERNAL_HOST`.
+Everything happens automatically:
+- **tls** adds the IP to the Elasticsearch and Fleet Server certificates (SAN)
+- **kibana-init** adds external URLs to Fleet Server hosts and Elasticsearch output
+- Kibana UI will show the external URL in the enrollment command
 
-**Step 4.** On the agent host, copy `tls/certs/ca/ca.crt` and install:
+**Step 3.** On the agent host, copy `tls/certs/ca/ca.crt` and install:
 
 ```sh
 sudo elastic-agent install \
@@ -214,16 +207,16 @@ docker compose down -v
 # Rebuild after version change
 docker compose build && docker compose up -d
 
-# Regenerate TLS certificates
-rm -rf tls/certs/*/
-docker compose up tls && docker compose up -d
+# Regenerate TLS certificates (also resets Kibana config to pick up new CA fingerprint)
+make certs
+docker compose up -d --build
 
 # Re-run user setup
 docker compose up setup
 
-# Regenerate Kibana encryption keys
-docker compose run --rm kibana-init
-docker compose restart kibana
+# Regenerate Kibana encryption keys (deletes the working config so init re-seeds from template)
+docker volume rm $(docker compose config --volumes | grep kibana-config | head -1)
+docker compose up -d
 
 # Reset password via API
 curl -XPOST 'https://localhost:9200/_security/user/elastic/_password' \
@@ -275,7 +268,7 @@ See [`elasticsearch/crack/README.md`](elasticsearch/crack/README.md) for details
 
 ```sh
 docker compose down
-docker volume rm elk-docker_fleet-server-state
+docker volume ls -q --filter name=fleet-server-state | xargs -r docker volume rm
 docker compose up -d
 ```
 
@@ -294,29 +287,30 @@ curl -XPOST 'https://localhost:9200/_license/start_basic?acknowledge=true' \
 ## Project structure
 
 ```
-├── docker-compose.yml          Main stack definition
-├── .env.example                Environment template
-├── Makefile                    Shortcuts (make up, make clean, ...)
+├── docker-compose.yml            Main stack definition
+├── .env.example                  Environment template
+├── Makefile                      Shortcuts (make up, make clean, ...)
 ├── elasticsearch/
-│   ├── Dockerfile              Multi-stage build with x-pack patch
+│   ├── Dockerfile                Multi-stage build with x-pack patch
 │   ├── config/elasticsearch.yml
-│   └── crack/                  License patch sources
+│   └── crack/                    License patch sources
 ├── kibana/
 │   ├── Dockerfile
-│   ├── config/kibana.yml
-│   └── init-keys.sh            Encryption keys + CA fingerprint injection
+│   ├── config/kibana.yml         Template (kibana-init generates the working copy)
+│   └── init-keys.sh              Encryption keys + CA fingerprint + external URLs
 ├── logstash/
 │   ├── Dockerfile
 │   ├── config/logstash.yml
 │   └── pipeline/logstash.conf
-├── setup/                      User and role provisioning
-├── tls/                        Certificate generation
-│   └── instances.yml           Hostnames/IPs for certificates
+├── setup/                        User and role provisioning
+├── tls/                          Certificate generation
+│   ├── instances.yml             Hostnames/IPs for certificates
+│   └── certs/                    Generated certs (gitignored)
 └── extensions/
-    ├── fleet/                  Fleet Server (always on)
-    ├── metricbeat/             Stack & host monitoring   (profile: monitoring)
-    ├── filebeat/               Docker log collection     (profile: monitoring)
-    └── heartbeat/              Uptime checks             (profile: monitoring)
+    ├── fleet/                    Fleet Server (always on)
+    ├── metricbeat/               Stack & host monitoring   (profile: monitoring)
+    ├── filebeat/                 Docker log collection     (profile: monitoring)
+    └── heartbeat/                Uptime checks             (profile: monitoring)
 ```
 
 ---

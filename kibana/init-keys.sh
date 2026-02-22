@@ -1,11 +1,20 @@
 #!/bin/sh
 set -eu
 
+KIBANA_TEMPLATE="${KIBANA_TEMPLATE:-/kibana-template/kibana.yml}"
 KIBANA_CONFIG="${KIBANA_CONFIG:-/kibana-config/kibana.yml}"
 
+# On first run, seed the working config from the template.
+# On subsequent runs, re-use the existing config to keep generated encryption keys.
 if [ ! -f "$KIBANA_CONFIG" ]; then
-  echo "Error: $KIBANA_CONFIG not found" >&2
-  exit 1
+  if [ ! -f "$KIBANA_TEMPLATE" ]; then
+    echo "Error: template $KIBANA_TEMPLATE not found" >&2
+    exit 1
+  fi
+  cp "$KIBANA_TEMPLATE" "$KIBANA_CONFIG"
+  echo "Seeded config from template"
+else
+  echo "Config already exists, preserving"
 fi
 
 # --- 1. Inject CA fingerprint for Fleet output ---
@@ -21,18 +30,22 @@ if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
   fi
 fi
 
-# --- 2. Inject external Fleet / ES URLs if FLEET_EXTERNAL_HOST is set ---
+# --- 2. Add external Fleet / ES URLs (external first so Kibana UI suggests it) ---
 if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
   FLEET_EXT="https://${FLEET_EXTERNAL_HOST}:8220"
   ES_EXT="https://${FLEET_EXTERNAL_HOST}:9200"
 
-  sed -i.bak "s|^ *- https://fleet-server:8220|  - ${FLEET_EXT}|" "$KIBANA_CONFIG"
-  rm -f "${KIBANA_CONFIG}.bak"
-  echo "Set Fleet Server host: ${FLEET_EXT}"
+  if ! grep -qF "$FLEET_EXT" "$KIBANA_CONFIG"; then
+    sed -i.bak "s|^ *- https://fleet-server:8220|  - ${FLEET_EXT}\n  - https://fleet-server:8220|" "$KIBANA_CONFIG"
+    rm -f "${KIBANA_CONFIG}.bak"
+    echo "Added Fleet Server host: ${FLEET_EXT} (primary)"
+  fi
 
-  sed -i.bak "s|^ *- https://elasticsearch:9200|      - ${ES_EXT}|" "$KIBANA_CONFIG"
-  rm -f "${KIBANA_CONFIG}.bak"
-  echo "Set Elasticsearch output: ${ES_EXT}"
+  if ! grep -qF "$ES_EXT" "$KIBANA_CONFIG"; then
+    sed -i.bak "s|^ *- https://elasticsearch:9200|      - ${ES_EXT}\n      - https://elasticsearch:9200|" "$KIBANA_CONFIG"
+    rm -f "${KIBANA_CONFIG}.bak"
+    echo "Added Elasticsearch output: ${ES_EXT} (primary)"
+  fi
 fi
 
 # --- 3. Generate and inject encryption keys ---

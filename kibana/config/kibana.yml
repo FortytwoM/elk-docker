@@ -16,11 +16,10 @@ server.ssl.enabled: true
 server.ssl.certificate: config/kibana.crt
 server.ssl.key: config/kibana.key
 
-# Encryption keys — generated automatically by kibana-init on first run.
-# To regenerate: comment out the three lines, run `docker compose run --rm kibana-init`, restart kibana.
-xpack.security.encryptionKey: 6af20ef0f365b0851b6d328dcbc6b702
-xpack.encryptedSavedObjects.encryptionKey: 40d4388bfef2d5e60133a317963c02be
-xpack.reporting.encryptionKey: c18b2f2fcc31bb04634fd249f2c40094
+# Encryption keys — injected by kibana-init on first run.
+#xpack.security.encryptionKey:
+#xpack.encryptedSavedObjects.encryptionKey:
+#xpack.reporting.encryptionKey:
 
 telemetry.optIn: false
 

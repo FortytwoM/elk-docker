@@ -33,8 +33,9 @@ status: ## Show service health and status
 
 ps: status ## Alias for status
 
-certs: ## Regenerate TLS certificates
+certs: ## Regenerate TLS certificates (also resets Kibana config for new CA fingerprint)
 	rm -rf tls/certs/*/
+	docker volume ls -q --filter name=kibana-config | xargs -r docker volume rm 2>/dev/null || true
 	$(COMPOSE) up tls
 
 setup: ## Re-run user/role setup

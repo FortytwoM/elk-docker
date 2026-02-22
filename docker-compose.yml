@@ -11,6 +11,8 @@ services:
       - ./tls/entrypoint.sh:/entrypoint.sh:ro,Z
       - ./tls/instances.yml:/usr/share/elasticsearch/tls/instances.yml:ro,Z
       - ./tls/certs:/usr/share/elasticsearch/tls/certs:z
+    environment:
+      FLEET_EXTERNAL_HOST: ${FLEET_EXTERNAL_HOST:-}
     restart: "no"
 
   kibana-init:
@@ -21,9 +23,11 @@ services:
     user: root
     volumes:
       - ./kibana/init-keys.sh:/usr/share/kibana/init-keys.sh:ro,Z
-      - ./kibana/config:/kibana-config:z
+      - ./kibana/config/kibana.yml:/kibana-template/kibana.yml:ro,Z
+      - kibana-config:/kibana-config
       - ./tls/certs/ca/ca.crt:/usr/share/kibana/ca.crt:ro,Z
     environment:
+      KIBANA_TEMPLATE: /kibana-template/kibana.yml
       KIBANA_CONFIG: /kibana-config/kibana.yml
       CA_CERT_PATH: /usr/share/kibana/ca.crt
       FLEET_EXTERNAL_HOST: ${FLEET_EXTERNAL_HOST:-}
@@ -119,7 +123,7 @@ services:
       - 5044:5044
       - 50000:50000/tcp
       - 50000:50000/udp
-      - 9600:9600
+      - 127.0.0.1:9600:9600
     environment:
       LS_JAVA_OPTS: -Xms256m -Xmx256m
       LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
@@ -152,8 +156,14 @@ services:
       timeout: 10s
       retries: 30
       start_period: 120s
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        cp /kibana-generated/kibana.yml /usr/share/kibana/config/kibana.yml
+        && /usr/local/bin/kibana-docker
     volumes:
-      - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml:ro,Z
+      - kibana-config:/kibana-generated:ro
       - ./tls/certs/ca/ca.crt:/usr/share/kibana/config/ca.crt:ro,z
       - ./tls/certs/kibana/kibana.crt:/usr/share/kibana/config/kibana.crt:ro,Z
       - ./tls/certs/kibana/kibana.key:/usr/share/kibana/config/kibana.key:ro,Z
@@ -301,6 +311,7 @@ services:
 
 volumes:
   elasticsearch-data:
+  kibana-config:
   fleet-server-state:
 
 networks:

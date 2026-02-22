@@ -1,8 +1,7 @@
 # X.509 certificate instances for elasticsearch-certutil.
 #
-# To connect external Elastic Agents, add your Docker host's IP/FQDN
-# to the 'elasticsearch' and 'fleet-server' entries, then regenerate certs:
-#   make certs && docker compose up -d
+# If FLEET_EXTERNAL_HOST is set in .env, the tls entrypoint automatically adds
+# that IP/hostname to the elasticsearch and fleet-server certificates.
 #
 # Ref. https://www.elastic.co/guide/en/elasticsearch/reference/current/certutil.html#certutil-silent
 instances:
@@ -11,13 +10,9 @@ instances:
   dns:
   - elasticsearch
   - localhost
-  # Add Docker host FQDN for external agent access:
-  #- elk.example.com
   ip:
   - 127.0.0.1
   - ::1
-  # Add Docker host IP for external agent access:
-  #- 192.168.1.100
 
 - name: kibana
   dns:
@@ -31,25 +26,13 @@ instances:
   dns:
   - fleet-server
   - localhost
-  # Add Docker host FQDN for external agent access:
-  #- elk.example.com
   ip:
   - 127.0.0.1
   - ::1
-  # Add Docker host IP for external agent access:
-  #- 192.168.1.100
 
 - name: logstash
   dns:
   - logstash
-  - localhost
-  ip:
-  - 127.0.0.1
-  - ::1
-
-- name: apm-server
-  dns:
-  - apm-server
   - localhost
   ip:
   - 127.0.0.1

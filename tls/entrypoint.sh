@@ -3,6 +3,28 @@
 set -eu
 set -o pipefail
 
+# --- Prepare instances config ---
+# Copy the read-only template to a writable location.
+# If FLEET_EXTERNAL_HOST is set, inject it into elasticsearch and fleet-server entries.
+cp tls/instances.yml /tmp/instances.yml
+
+if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
+	echo "[+] Adding external host to certificates: ${FLEET_EXTERNAL_HOST}"
+
+	# Determine whether the value looks like an IP address or a DNS name
+	if echo "$FLEET_EXTERNAL_HOST" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+		FIELD="ip"
+	else
+		FIELD="dns"
+	fi
+
+	for name in elasticsearch fleet-server; do
+		sed -i "/^- name: ${name}$/,/^- name:/{
+			/^  ${FIELD}:$/a\\  - ${FLEET_EXTERNAL_HOST}
+		}" /tmp/instances.yml
+	done
+fi
+
 declare symbol=⠍
 
 echo '[+] CA certificate and key'
@@ -45,12 +67,12 @@ echo '[+] Server certificates and keys'
 if [ ! -f tls/certs/elasticsearch/elasticsearch.crt ] || [ ! -f tls/certs/elasticsearch/elasticsearch.key ]; then
 	symbol=⠿
 
-	rm -rf tls/certs/elasticsearch tls/certs/kibana tls/certs/fleet-server tls/certs/logstash tls/certs/apm-server
+	rm -rf tls/certs/elasticsearch tls/certs/kibana tls/certs/fleet-server tls/certs/logstash
 
 	bin/elasticsearch-certutil cert \
 		--silent \
 		--pem \
-		--in tls/instances.yml \
+		--in /tmp/instances.yml \
 		--ca-cert tls/certs/ca/ca.crt \
 		--ca-key tls/certs/ca/ca.key \
 		--out tls/certs/certs.zip

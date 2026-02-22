@@ -23,4 +23,3 @@ docker run --rm \
 
 echo
 echo "Cracked jar: ${SCRIPT_DIR}/output/x-pack-core-${VERSION}.crack.jar"
-echo "To use with elk-docker: uncomment the CRACK_JAR volume and env in docker-compose.yml, then restart elasticsearch."

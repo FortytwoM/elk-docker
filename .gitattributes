@@ -1,10 +1,18 @@
-# Shell scripts and entrypoints must use LF (Docker runs on Linux)
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Shell scripts and config must use LF (Docker runs on Linux)
 *.sh       text eol=lf
 *.conf     text eol=lf
 *.yml      text eol=lf
 *.yaml     text eol=lf
+*.json     text eol=lf
+*.env      text eol=lf
 Dockerfile text eol=lf
 Makefile   text eol=lf
+
+# Markdown
+*.md       text eol=lf
 
 # Windows-only files
 *.ps1      text eol=crlf

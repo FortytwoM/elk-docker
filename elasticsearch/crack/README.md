@@ -21,16 +21,8 @@ docker compose up -d
 
 If you want to build the JAR separately (e.g. for use outside Docker):
 
-### Linux / macOS
-
 ```bash
 bash elasticsearch/crack/crack_linux.sh 9.3.0
-```
-
-### Windows (PowerShell)
-
-```powershell
-.\elasticsearch\crack\crack_windows.ps1 -Version 9.3.0
 ```
 
 Output: `elasticsearch/crack/output/x-pack-core-<version>.crack.jar`.
