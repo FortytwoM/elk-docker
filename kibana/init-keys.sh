@@ -1,6 +1,4 @@
 #!/bin/sh
-# Generates Kibana encryption keys and injects CA fingerprint for Fleet.
-# Idempotent: only patches lines that are still commented out.
 set -eu
 
 KIBANA_CONFIG="${KIBANA_CONFIG:-/kibana-config/kibana.yml}"
@@ -23,7 +21,21 @@ if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
   fi
 fi
 
-# --- 2. Generate and inject encryption keys ---
+# --- 2. Inject external Fleet / ES URLs if FLEET_EXTERNAL_HOST is set ---
+if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
+  FLEET_EXT="https://${FLEET_EXTERNAL_HOST}:8220"
+  ES_EXT="https://${FLEET_EXTERNAL_HOST}:9200"
+
+  sed -i.bak "s|^ *- https://fleet-server:8220|  - ${FLEET_EXT}|" "$KIBANA_CONFIG"
+  rm -f "${KIBANA_CONFIG}.bak"
+  echo "Set Fleet Server host: ${FLEET_EXT}"
+
+  sed -i.bak "s|^ *- https://elasticsearch:9200|      - ${ES_EXT}|" "$KIBANA_CONFIG"
+  rm -f "${KIBANA_CONFIG}.bak"
+  echo "Set Elasticsearch output: ${ES_EXT}"
+fi
+
+# --- 3. Generate and inject encryption keys ---
 needs_patch=false
 for key in xpack.security.encryptionKey xpack.encryptedSavedObjects.encryptionKey xpack.reporting.encryptionKey; do
   key_escaped=$(echo "$key" | sed 's/\./\\./g')

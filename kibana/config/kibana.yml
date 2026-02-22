@@ -18,9 +18,9 @@ server.ssl.key: config/kibana.key
 
 # Encryption keys — generated automatically by kibana-init on first run.
 # To regenerate: comment out the three lines, run `docker compose run --rm kibana-init`, restart kibana.
-#xpack.security.encryptionKey:
-#xpack.encryptedSavedObjects.encryptionKey:
-#xpack.reporting.encryptionKey:
+xpack.security.encryptionKey: 6af20ef0f365b0851b6d328dcbc6b702
+xpack.encryptedSavedObjects.encryptionKey: 40d4388bfef2d5e60133a317963c02be
+xpack.reporting.encryptionKey: c18b2f2fcc31bb04634fd249f2c40094
 
 telemetry.optIn: false
 
@@ -28,13 +28,15 @@ telemetry.optIn: false
 xpack.fleet.isAirGapped: true
 xpack.fleet.registryUrl: "http://package-registry:8080"
 
-xpack.fleet.agents.fleet_server.hosts: [ https://fleet-server:8220 ]
+xpack.fleet.agents.fleet_server.hosts:
+  - https://fleet-server:8220
 
 xpack.fleet.outputs:
   - id: fleet-default-output
     name: default
     type: elasticsearch
-    hosts: [ https://elasticsearch:9200 ]
+    hosts:
+      - https://elasticsearch:9200
     #ca_trusted_fingerprint: <injected-by-kibana-init>
     is_default: true
     is_default_monitoring: true

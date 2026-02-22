@@ -26,6 +26,7 @@ services:
     environment:
       KIBANA_CONFIG: /kibana-config/kibana.yml
       CA_CERT_PATH: /usr/share/kibana/ca.crt
+      FLEET_EXTERNAL_HOST: ${FLEET_EXTERNAL_HOST:-}
     command: ["/bin/sh", "-c", "sed 's/\\r//' /usr/share/kibana/init-keys.sh > /tmp/init-keys.sh && /bin/sh /tmp/init-keys.sh"]
     depends_on:
       tls:
@@ -72,12 +73,13 @@ services:
       test:
         - CMD-SHELL
         - >-
-          curl -s --cacert config/ca.crt -u elastic:${ELASTIC_PASSWORD}
+          curl -s --cacert /usr/share/elasticsearch/config/ca.crt
+          -u elastic:$${ELASTIC_PASSWORD}
           https://localhost:9200/_cluster/health?local=true
           | grep -qE '"status"\s*:\s*"(green|yellow)"'
           || exit 1
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 30
       start_period: 60s
     volumes:
@@ -87,7 +89,7 @@ services:
       - ./tls/certs/elasticsearch/elasticsearch.crt:/usr/share/elasticsearch/config/elasticsearch.crt:ro,z
       - ./tls/certs/elasticsearch/elasticsearch.key:/usr/share/elasticsearch/config/elasticsearch.key:ro,z
     ports:
-      - 127.0.0.1:9200:9200
+      - 9200:9200
       - 127.0.0.1:9300:9300
     environment:
       node.name: elasticsearch
@@ -104,7 +106,7 @@ services:
       args:
         ELASTIC_VERSION: ${ELASTIC_VERSION}
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/stats | grep -q '\"status\":\"green\"' || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:9600/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -142,12 +144,12 @@ services:
       test:
         - CMD-SHELL
         - >-
-          curl -s --cacert config/ca.crt
+          curl -s --cacert /usr/share/kibana/config/ca.crt
           https://localhost:5601/api/status
-          | grep -qE '"level":"(available|degraded)"'
+          | grep -qE '"level"\s*:\s*"(available|degraded)"'
           || exit 1
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 30
       start_period: 120s
     volumes:
@@ -156,7 +158,7 @@ services:
       - ./tls/certs/kibana/kibana.crt:/usr/share/kibana/config/kibana.crt:ro,Z
       - ./tls/certs/kibana/kibana.key:/usr/share/kibana/config/kibana.key:ro,Z
     ports:
-      - 127.0.0.1:5601:5601
+      - 5601:5601
     environment:
       KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
     networks:

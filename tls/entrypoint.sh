@@ -7,15 +7,17 @@ declare symbol=⠍
 
 echo '[+] CA certificate and key'
 
-if [ ! -f tls/certs/ca/ca.key ]; then
+if [ ! -f tls/certs/ca/ca.crt ] || [ ! -f tls/certs/ca/ca.key ]; then
 	symbol=⠿
+
+	rm -rf tls/certs/ca
 
 	bin/elasticsearch-certutil ca \
 		--silent \
 		--pem \
 		--out tls/certs/ca.zip
 
-	unzip tls/certs/ca.zip -d tls/certs/ >/dev/null
+	unzip -o tls/certs/ca.zip -d tls/certs/ >/dev/null
 	rm tls/certs/ca.zip
 
 	echo '   ⠿ Created'
@@ -40,8 +42,10 @@ symbol=⠍
 
 echo '[+] Server certificates and keys'
 
-if [ ! -f tls/certs/elasticsearch/elasticsearch.key ]; then
+if [ ! -f tls/certs/elasticsearch/elasticsearch.crt ] || [ ! -f tls/certs/elasticsearch/elasticsearch.key ]; then
 	symbol=⠿
+
+	rm -rf tls/certs/elasticsearch tls/certs/kibana tls/certs/fleet-server tls/certs/logstash tls/certs/apm-server
 
 	bin/elasticsearch-certutil cert \
 		--silent \
@@ -51,10 +55,10 @@ if [ ! -f tls/certs/elasticsearch/elasticsearch.key ]; then
 		--ca-key tls/certs/ca/ca.key \
 		--out tls/certs/certs.zip
 
-	unzip tls/certs/certs.zip -d tls/certs/ >/dev/null
+	unzip -o tls/certs/certs.zip -d tls/certs/ >/dev/null
 	rm tls/certs/certs.zip
 
-	find tls -name ca -prune -or -type f -name '*.crt' -exec sh -c 'cat tls/certs/ca/ca.crt >>{}' \;
+	find tls -name ca -prune -or -type f -name '*.crt' -exec sh -c 'cat tls/certs/ca/ca.crt >>"$1"' _ {} \;
 
 	echo '   ⠿ Created'
 else

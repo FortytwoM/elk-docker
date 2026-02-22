@@ -121,6 +121,46 @@ The CA fingerprint is injected by `kibana-init`, so Fleet appears healthy out of
 
 To use the public Elastic registry instead of the local one, remove `xpack.fleet.isAirGapped` and `xpack.fleet.registryUrl` from `kibana/config/kibana.yml`.
 
+### Connecting external Elastic Agents
+
+By default Fleet Server and Elasticsearch URLs use Docker-internal names (`fleet-server:8220`, `elasticsearch:9200`). External agents can't resolve them.
+
+**Step 1.** Set your Docker host's IP in `.env`:
+
+```ini
+FLEET_EXTERNAL_HOST=192.168.1.100
+```
+
+**Step 2.** Add the same IP to `tls/instances.yml` under both `elasticsearch` and `fleet-server`:
+
+```yaml
+- name: fleet-server
+  ip:
+  - 127.0.0.1
+  - ::1
+  - 192.168.1.100   # <-- your host IP
+```
+
+**Step 3.** Regenerate certs and restart:
+
+```sh
+make certs
+docker compose up -d --build
+```
+
+`kibana-init` will automatically rewrite Fleet Server and Elasticsearch URLs in `kibana.yml` to use `FLEET_EXTERNAL_HOST`.
+
+**Step 4.** On the agent host, copy `tls/certs/ca/ca.crt` and install:
+
+```sh
+sudo elastic-agent install \
+  --url=https://192.168.1.100:8220 \
+  --enrollment-token=<TOKEN_FROM_KIBANA> \
+  --certificate-authorities=/path/to/ca.crt
+```
+
+Get the enrollment token from Kibana: **Fleet → Add agent → select policy → copy token**.
+
 ### Monitoring profile
 
 The `monitoring` profile starts Metricbeat, Filebeat, and Heartbeat. Their configs are in `extensions/*/config/`. Passwords must be set in `.env`:

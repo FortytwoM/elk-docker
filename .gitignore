@@ -3,6 +3,3 @@
 
 # Runtime data (bind mounts, local state)
 data/
-
-# Generated TLS certificates
-tls/certs/
