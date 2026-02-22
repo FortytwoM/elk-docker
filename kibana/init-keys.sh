@@ -30,7 +30,22 @@ if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
   fi
 fi
 
-# --- 2. Add external Fleet / ES URLs (external first so Kibana UI suggests it) ---
+# --- 2. Embed CA certificate into Fleet output (so all agent components trust ES) ---
+if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
+  if ! grep -q "certificate_authorities:" "$KIBANA_CONFIG"; then
+    {
+      echo "    ssl:"
+      echo "      certificate_authorities:"
+      echo "        - |"
+      sed 's/^/          /' "$CA_CERT_PATH"
+    } > /tmp/ca_fragment.yml
+    sed -i.bak "/ca_trusted_fingerprint:/r /tmp/ca_fragment.yml" "$KIBANA_CONFIG"
+    rm -f "${KIBANA_CONFIG}.bak" /tmp/ca_fragment.yml
+    echo "Embedded CA certificate into Fleet output"
+  fi
+fi
+
+# --- 3. Add external Fleet / ES URLs (external first so Kibana UI suggests it) ---
 if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
   FLEET_EXT="https://${FLEET_EXTERNAL_HOST}:8220"
   ES_EXT="https://${FLEET_EXTERNAL_HOST}:9200"
@@ -48,7 +63,7 @@ if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
   fi
 fi
 
-# --- 3. Generate and inject encryption keys ---
+# --- 4. Generate and inject encryption keys ---
 needs_patch=false
 for key in xpack.security.encryptionKey xpack.encryptedSavedObjects.encryptionKey xpack.reporting.encryptionKey; do
   key_escaped=$(echo "$key" | sed 's/\./\\./g')

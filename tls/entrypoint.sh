@@ -4,25 +4,32 @@ set -eu
 set -o pipefail
 
 # --- Prepare instances config ---
-# Copy the read-only template to a writable location.
+# Copy the read-only template to a writable location and strip Windows line endings.
 # If FLEET_EXTERNAL_HOST is set, inject it into elasticsearch and fleet-server entries.
 cp tls/instances.yml /tmp/instances.yml
+sed -i 's/\r$//' /tmp/instances.yml
 
 if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
 	echo "[+] Adding external host to certificates: ${FLEET_EXTERNAL_HOST}"
 
-	# Determine whether the value looks like an IP address or a DNS name
 	if echo "$FLEET_EXTERNAL_HOST" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
 		FIELD="ip"
+		ANCHOR="::1"
 	else
 		FIELD="dns"
+		ANCHOR="localhost"
 	fi
 
-	for name in elasticsearch fleet-server; do
-		sed -i "/^- name: ${name}$/,/^- name:/{
-			/^  ${FIELD}:$/a\\  - ${FLEET_EXTERNAL_HOST}
-		}" /tmp/instances.yml
-	done
+	awk -v host="$FLEET_EXTERNAL_HOST" -v anchor="$ANCHOR" '
+		/^- name: elasticsearch$/ || /^- name: fleet-server$/ { target=1 }
+		/^- name:/ && !/^- name: elasticsearch$/ && !/^- name: fleet-server$/ { target=0 }
+		{ print }
+		target && index($0, "- " anchor) { print "  - " host }
+	' /tmp/instances.yml > /tmp/instances_patched.yml
+	mv /tmp/instances_patched.yml /tmp/instances.yml
+
+	echo "   Patched instances.yml:"
+	cat /tmp/instances.yml
 fi
 
 declare symbol=⠍
