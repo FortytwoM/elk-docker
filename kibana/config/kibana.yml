@@ -34,6 +34,7 @@ xpack.fleet.outputs:
     hosts:
       - https://elasticsearch:9200
     #ca_trusted_fingerprint: <injected-by-kibana-init>
+    #ssl.certificate_authorities: <injected-by-kibana-init>
     is_default: true
     is_default_monitoring: true
 

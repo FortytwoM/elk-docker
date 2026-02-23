@@ -140,30 +140,43 @@ docker compose up -d --build
 
 Everything happens automatically:
 - **tls** adds the IP to the Elasticsearch and Fleet Server certificates (SAN)
-- **kibana-init** adds external URLs to Fleet Server hosts and Elasticsearch output
+- **kibana-init** replaces internal Docker hostnames with external URLs, injects the CA fingerprint and embeds the full CA certificate into the Fleet output
 - Kibana UI will show the external URL in the enrollment command
 
-**Step 3.** On the agent host, copy `tls/certs/ca/ca.crt` and install:
-
-```sh
-sudo elastic-agent install \
-  --url=https://192.168.1.100:8220 \
-  --enrollment-token=<TOKEN_FROM_KIBANA> \
-  --certificate-authorities=/path/to/ca.crt
-```
+**Step 3.** Copy `tls/certs/ca/ca.crt` to the agent host and run the enrollment script.
 
 Get the enrollment token from Kibana: **Fleet → Add agent → select policy → copy token**.
+
+**Linux / macOS:**
+
+```sh
+sudo ./scripts/install-agent.sh \
+  --url https://192.168.1.100:8220 \
+  --token <TOKEN_FROM_KIBANA> \
+  --ca /path/to/ca.crt
+```
+
+**Windows** (elevated PowerShell):
+
+```powershell
+.\scripts\install-agent.ps1 `
+  -FleetUrl "https://192.168.1.100:8220" `
+  -Token "<TOKEN_FROM_KIBANA>" `
+  -CaCertPath "C:\path\to\ca.crt"
+```
+
+The scripts automatically install the CA into the OS trust store — this is **required** for Elastic Defend (endpoint-security) to work with self-signed certificates.
 
 ### Monitoring profile
 
 The `monitoring` profile starts Metricbeat, Filebeat, and Heartbeat. Their configs are in `extensions/*/config/`. Passwords must be set in `.env`:
 
 ```ini
-METRICBEAT_INTERNAL_PASSWORD='changeme'
-FILEBEAT_INTERNAL_PASSWORD='changeme'
-HEARTBEAT_INTERNAL_PASSWORD='changeme'
-MONITORING_INTERNAL_PASSWORD='changeme'
-BEATS_SYSTEM_PASSWORD='changeme'
+METRICBEAT_INTERNAL_PASSWORD=changeme
+FILEBEAT_INTERNAL_PASSWORD=changeme
+HEARTBEAT_INTERNAL_PASSWORD=changeme
+MONITORING_INTERNAL_PASSWORD=changeme
+BEATS_SYSTEM_PASSWORD=changeme
 ```
 
 ---
@@ -290,6 +303,9 @@ curl -XPOST 'https://localhost:9200/_license/start_basic?acknowledge=true' \
 ├── docker-compose.yml            Main stack definition
 ├── .env.example                  Environment template
 ├── Makefile                      Shortcuts (make up, make clean, ...)
+├── scripts/
+│   ├── install-agent.sh          Agent enrollment helper (Linux/macOS)
+│   └── install-agent.ps1         Agent enrollment helper (Windows)
 ├── elasticsearch/
 │   ├── Dockerfile                Multi-stage build with x-pack patch
 │   ├── config/elasticsearch.yml

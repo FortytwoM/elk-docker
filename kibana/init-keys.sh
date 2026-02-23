@@ -12,15 +12,21 @@ if [ ! -f "$KIBANA_CONFIG" ]; then
     exit 1
   fi
   cp "$KIBANA_TEMPLATE" "$KIBANA_CONFIG"
+  sed -i 's/\r$//' "$KIBANA_CONFIG"
   echo "Seeded config from template"
 else
   echo "Config already exists, preserving"
 fi
 
-# --- 1. Inject CA fingerprint for Fleet output ---
+# --- 1. Inject CA fingerprint + full certificate into Fleet output ---
 if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
-  FP=$(openssl x509 -fingerprint -sha256 -noout -in "$CA_CERT_PATH" \
-       | sed 's/.*=//' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+  NODE_BIN=$(find /usr/share/kibana/node -name node -type f 2>/dev/null | head -1)
+  FP=$("${NODE_BIN:-node}" -e "
+    const crypto = require('crypto');
+    const pem = require('fs').readFileSync('${CA_CERT_PATH}', 'utf8');
+    const der = Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, ''), 'base64');
+    console.log(crypto.createHash('sha256').update(der).digest('hex'));
+  " 2>/dev/null) || true
   if [ -n "$FP" ]; then
     if grep -q "ca_trusted_fingerprint:" "$KIBANA_CONFIG"; then
       sed -i.bak "s|^.*ca_trusted_fingerprint:.*|    ca_trusted_fingerprint: ${FP}|" "$KIBANA_CONFIG"
@@ -28,42 +34,51 @@ if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
       echo "Set ca_trusted_fingerprint: ${FP}"
     fi
   fi
-fi
 
-# --- 2. Embed CA certificate into Fleet output (so all agent components trust ES) ---
-if [ -n "${CA_CERT_PATH:-}" ] && [ -f "$CA_CERT_PATH" ]; then
-  if ! grep -q "certificate_authorities:" "$KIBANA_CONFIG"; then
+  # Embed the full CA PEM so agents receive it through the policy
+  # (elastic-endpoint needs the actual cert, not just the fingerprint)
+  if grep -q "#ssl.certificate_authorities:" "$KIBANA_CONFIG"; then
+    # Build the YAML block: ssl.certificate_authorities with a PEM literal
     {
       echo "    ssl:"
       echo "      certificate_authorities:"
       echo "        - |"
-      sed 's/^/          /' "$CA_CERT_PATH"
-    } > /tmp/ca_fragment.yml
-    sed -i.bak "/ca_trusted_fingerprint:/r /tmp/ca_fragment.yml" "$KIBANA_CONFIG"
-    rm -f "${KIBANA_CONFIG}.bak" /tmp/ca_fragment.yml
-    echo "Embedded CA certificate into Fleet output"
+      while IFS= read -r line; do
+        echo "          $line"
+      done < "$CA_CERT_PATH"
+    } > /tmp/ssl_block.txt
+
+    awk '
+      /#ssl\.certificate_authorities:/ { skip=1; while ((getline block < "/tmp/ssl_block.txt") > 0) print block; next }
+      { print }
+    ' "$KIBANA_CONFIG" > "${KIBANA_CONFIG}.tmp"
+    mv "${KIBANA_CONFIG}.tmp" "$KIBANA_CONFIG"
+    rm -f /tmp/ssl_block.txt
+    echo "Embedded CA certificate in Fleet output"
   fi
 fi
 
-# --- 3. Add external Fleet / ES URLs (external first so Kibana UI suggests it) ---
+# --- 2. Replace internal Docker hostnames with the external host ---
+# Only replaces in Fleet-specific sections (indented yaml list items),
+# preserving elasticsearch.hosts used by Kibana itself.
 if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
   FLEET_EXT="https://${FLEET_EXTERNAL_HOST}:8220"
   ES_EXT="https://${FLEET_EXTERNAL_HOST}:9200"
 
   if ! grep -qF "$FLEET_EXT" "$KIBANA_CONFIG"; then
-    sed -i.bak "s|^ *- https://fleet-server:8220|  - ${FLEET_EXT}\n  - https://fleet-server:8220|" "$KIBANA_CONFIG"
+    sed -i.bak "s|^ *- https://fleet-server:8220|  - ${FLEET_EXT}|" "$KIBANA_CONFIG"
     rm -f "${KIBANA_CONFIG}.bak"
-    echo "Added Fleet Server host: ${FLEET_EXT} (primary)"
+    echo "Fleet Server host → ${FLEET_EXT}"
   fi
 
   if ! grep -qF "$ES_EXT" "$KIBANA_CONFIG"; then
-    sed -i.bak "s|^ *- https://elasticsearch:9200|      - ${ES_EXT}\n      - https://elasticsearch:9200|" "$KIBANA_CONFIG"
+    sed -i.bak "s|^ \{4,\}- https://elasticsearch:9200|      - ${ES_EXT}|" "$KIBANA_CONFIG"
     rm -f "${KIBANA_CONFIG}.bak"
-    echo "Added Elasticsearch output: ${ES_EXT} (primary)"
+    echo "Elasticsearch output → ${ES_EXT}"
   fi
 fi
 
-# --- 4. Generate and inject encryption keys ---
+# --- 3. Generate and inject encryption keys ---
 needs_patch=false
 for key in xpack.security.encryptionKey xpack.encryptedSavedObjects.encryptionKey xpack.reporting.encryptionKey; do
   key_escaped=$(echo "$key" | sed 's/\./\\./g')
