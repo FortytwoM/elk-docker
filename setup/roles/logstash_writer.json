@@ -1,20 +1,26 @@
 {
   "cluster": [
     "manage_index_templates",
+    "manage_ingest_pipelines",
     "monitor",
-    "manage_ilm"
+    "manage_ilm",
+    "read_pipeline"
   ],
   "indices": [
     {
       "names": [
-        "logs-generic-default",
+        "logs-*",
+        "metrics-*",
+        "logs-generic-default*",
         "logstash-*",
         "ecs-logstash-*"
       ],
       "privileges": [
         "write",
         "create",
+        "create_doc",
         "create_index",
+        "auto_configure",
         "manage",
         "manage_ilm"
       ]

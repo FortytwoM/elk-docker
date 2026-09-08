@@ -1,7 +1,7 @@
 ARG ELASTIC_VERSION
 
 # ---- Stage 1: build patched x-pack-core JAR ----
-FROM docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.3.0} AS xpack-source
+FROM docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.5.3} AS xpack-source
 
 FROM eclipse-temurin:21-jdk AS crack-builder
 
@@ -18,7 +18,7 @@ RUN sed -i 's/\r$//' build_crack_jar.sh && \
     bash build_crack_jar.sh
 
 # ---- Stage 2: final Elasticsearch image ----
-FROM docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.3.0}
+FROM docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.5.3}
 
 ARG ELASTIC_VERSION
 

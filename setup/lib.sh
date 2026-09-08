@@ -232,3 +232,112 @@ function ensure_role {
 
 	return $result
 }
+
+# PUT JSON to an Elasticsearch path. Succeeds on any of the given HTTP codes (default: 200).
+function es_put {
+	local path=$1
+	local body=$2
+	shift 2
+	local -a ok_codes=( "$@" )
+	(( ${#ok_codes[@]} )) || ok_codes=( 200 201 )
+
+	local -a args=( '-s' '-D-' '-m30' '-w' '%{http_code}'
+		"https://elasticsearch:9200/${path}"
+		'--cacert' "$es_ca_cert"
+		'-X' 'PUT'
+		'-H' 'Content-Type: application/json'
+		'-d' "$body"
+		)
+
+	augment_curl_args args
+
+	local output
+	output="$(curl "${args[@]}")"
+	local -i code="${output: -3}"
+	local -i result=1
+	local ok
+	for ok in "${ok_codes[@]}"; do
+		if (( code == ok )); then
+			result=0
+			break
+		fi
+	done
+
+	if ((result)); then
+		echo -e "\n${output::-3}\n"
+	fi
+
+	return $result
+}
+
+# Short ILM for pocket disks. Uses logs@custom / metrics@custom so Fleet package
+# updates do not wipe the policy. RETENTION_DAYS=0 skips this.
+function ensure_retention {
+	local days="${RETENTION_DAYS:-0}"
+
+	if ! [[ "$days" =~ ^[1-9][0-9]*$ ]]; then
+		sublog "RETENTION_DAYS=${days:-<empty>} — skipping custom ILM"
+		return 0
+	fi
+
+	log "ILM retention ${days}d (logs-* / metrics-*)"
+
+	local policy
+	policy=$(cat <<EOF
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_age": "1d",
+            "max_primary_shard_size": "10gb"
+          }
+        }
+      },
+      "delete": {
+        "min_age": "${days}d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+EOF
+)
+
+	sublog 'Policy elk-retention'
+	es_put '_ilm/policy/elk-retention' "$policy"
+
+	local custom
+	custom=$(cat <<EOF
+{
+  "template": {
+    "settings": {
+      "index": {
+        "lifecycle": {
+          "name": "elk-retention"
+        }
+      }
+    }
+  },
+  "_meta": {
+    "managed_by": "elk-docker"
+  }
+}
+EOF
+)
+
+	sublog 'Component template logs@custom'
+	es_put '_component_template/logs@custom' "$custom"
+
+	sublog 'Component template metrics@custom'
+	es_put '_component_template/metrics@custom' "$custom"
+
+	# Existing backing indices keep the old policy until rollover; nudge them.
+	local settings='{"index":{"lifecycle":{"name":"elk-retention"}}}'
+	es_put 'logs-*/_settings?allow_no_indices=true&ignore_unavailable=true' "$settings" 200 400 || true
+	es_put 'metrics-*/_settings?allow_no_indices=true&ignore_unavailable=true' "$settings" 200 400 || true
+}

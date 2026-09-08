@@ -6,6 +6,7 @@ KIBANA_CONFIG="${KIBANA_CONFIG:-/kibana-config/kibana.yml}"
 
 # On first run, seed the working config from the template.
 # On subsequent runs, re-use the existing config to keep generated encryption keys.
+# Kibana 9.5 rejects xpack.fleet package_policy `inputs.config` — re-seed if present.
 if [ ! -f "$KIBANA_CONFIG" ]; then
   if [ ! -f "$KIBANA_TEMPLATE" ]; then
     echo "Error: template $KIBANA_TEMPLATE not found" >&2
@@ -14,6 +15,23 @@ if [ ! -f "$KIBANA_CONFIG" ]; then
   cp "$KIBANA_TEMPLATE" "$KIBANA_CONFIG"
   sed -i 's/\r$//' "$KIBANA_CONFIG"
   echo "Seeded config from template"
+elif grep -q "elk-artifacts" "$KIBANA_CONFIG"; then
+  echo "Replacing invalid Defend preconfig (Kibana 9.5); keeping encryption keys"
+  grep -E '^xpack\.(security|encryptedSavedObjects|reporting)\.encryptionKey:' "$KIBANA_CONFIG" > /tmp/keys-keep.txt || true
+  cp "$KIBANA_TEMPLATE" "$KIBANA_CONFIG"
+  sed -i 's/\r$//' "$KIBANA_CONFIG"
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    key="${line%%: *}"
+    value="${line#*: }"
+    value=$(echo "$value" | tr -d ' \t\r\n')
+    key_escaped=$(echo "$key" | sed 's/\./\\./g')
+    if grep -qE "^#[[:space:]]*${key_escaped}:" "$KIBANA_CONFIG"; then
+      sed -i.bak "s/^#[[:space:]]*${key_escaped}:.*/${key}: ${value}/" "$KIBANA_CONFIG"
+      rm -f "${KIBANA_CONFIG}.bak"
+    fi
+  done < /tmp/keys-keep.txt
+  echo "Re-seeded config from template"
 else
   echo "Config already exists, preserving"
 fi
@@ -61,9 +79,19 @@ fi
 # --- 2. Replace internal Docker hostnames with the external host ---
 # Only replaces in Fleet-specific sections (indented yaml list items),
 # preserving elasticsearch.hosts used by Kibana itself.
+host_port() {
+  # ES_PORT/KIBANA_PORT/FLEET_PORT may be "5601" or "127.0.0.1:5601"
+  local value="${1:-$2}"
+  echo "${value##*:}"
+}
+
 if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
-  FLEET_EXT="https://${FLEET_EXTERNAL_HOST}:8220"
-  ES_EXT="https://${FLEET_EXTERNAL_HOST}:9200"
+  FLEET_P="$(host_port "${FLEET_PORT:-}" 8220)"
+  ES_P="$(host_port "${ES_PORT:-}" 9200)"
+  KIBANA_P="$(host_port "${KIBANA_PORT:-}" 5601)"
+  FLEET_EXT="https://${FLEET_EXTERNAL_HOST}:${FLEET_P}"
+  ES_EXT="https://${FLEET_EXTERNAL_HOST}:${ES_P}"
+  PUBLIC_URL="https://${FLEET_EXTERNAL_HOST}:${KIBANA_P}"
 
   if ! grep -qF "$FLEET_EXT" "$KIBANA_CONFIG"; then
     sed -i.bak "s|^ *- https://fleet-server:8220|  - ${FLEET_EXT}|" "$KIBANA_CONFIG"
@@ -76,6 +104,14 @@ if [ -n "${FLEET_EXTERNAL_HOST:-}" ]; then
     rm -f "${KIBANA_CONFIG}.bak"
     echo "Elasticsearch output → ${ES_EXT}"
   fi
+
+  if grep -qE "^server\.publicBaseUrl:" "$KIBANA_CONFIG"; then
+    sed -i.bak "s|^server\.publicBaseUrl:.*|server.publicBaseUrl: ${PUBLIC_URL}|" "$KIBANA_CONFIG"
+    rm -f "${KIBANA_CONFIG}.bak"
+  else
+    printf '\nserver.publicBaseUrl: %s\n' "$PUBLIC_URL" >> "$KIBANA_CONFIG"
+  fi
+  echo "Kibana publicBaseUrl → ${PUBLIC_URL}"
 fi
 
 # --- 3. Generate and inject encryption keys ---

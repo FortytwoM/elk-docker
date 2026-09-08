@@ -12,7 +12,7 @@ Fleet provides central management for [Elastic Agents][fleet-doc] via Kibana, wi
 
 ## Configuration
 
-Fleet Server is configured via [Agent Policies][fleet-pol] in Kibana. A default policy (`fleet-server-policy`) is pre-configured in `kibana/config/kibana.yml`.
+A default **Endpoint Policy** (`endpoint-policy`) is pre-configured as the default agent policy, with System, Windows, and Elastic Defend. Agent binaries and Defend artifacts download from the local nginx mirror (`http://<FLEET_EXTERNAL_HOST>:9080`), not `artifacts.elastic.co` / `artifacts.security.elastic.co`.
 
 The CA fingerprint and full CA certificate are injected automatically by the `kibana-init` service into the Fleet output. The fingerprint lets the Go agent verify the CA during TLS handshake; the embedded certificate is passed to sub-components like Elastic Defend.
 
@@ -69,7 +69,7 @@ sudo elastic-agent install \
 |-----------|-----------------------------|
 | Elastic Agent (Go) | `ca_trusted_fingerprint` — matches the CA during TLS handshake |
 | Elastic Defend (C++) | Receives the CA from the Fleet policy (`ssl.certificate_authorities`); system trust store also required for `cloudServices` and `responseActions` |
-| Cloud services (artifacts) | Public Elastic CAs — requires internet access or [offline endpoint setup][offline] |
+| Cloud services (artifacts) | This stack’s nginx on **9080** (`advanced.artifacts.global.base_url` + Fleet agent binary download). Docker host proxies Elastic CDNs; endpoints do not. |
 
 The stack sets both `ca_trusted_fingerprint` and the full CA certificate (`ssl.certificate_authorities`) on the Fleet output. The Go agent uses the fingerprint for initial trust; the embedded certificate is distributed to all sub-components, including Elastic Defend.
 

@@ -94,6 +94,15 @@ else
 	echo '   ⠍ Already present, skipping'
 fi
 
+# Logstash Beats input requires a PKCS#8 key (certutil PEM may be PKCS#1).
+if [ -f tls/certs/logstash/logstash.key ]; then
+	openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
+		-in tls/certs/logstash/logstash.key \
+		-out tls/certs/logstash/logstash.pkcs8.key
+	chmod 644 tls/certs/logstash/logstash.pkcs8.key tls/certs/logstash/logstash.crt tls/certs/logstash/logstash.key
+	echo '   ⠿ Logstash PKCS#8 key'
+fi
+
 while IFS= read -r file; do
 	echo "   ${symbol}   ${file}"
 done < <(find tls -name ca -prune -or -type f \( -name '*.crt' -or -name '*.key' \) -mindepth 1 -print)

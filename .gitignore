@@ -3,3 +3,7 @@
 
 # Runtime data (bind mounts, local state)
 data/
+
+# Generated TLS material (CA private key must never be committed)
+tls/certs/**
+!tls/certs/.gitignore

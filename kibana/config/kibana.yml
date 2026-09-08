@@ -19,6 +19,7 @@ server.ssl.key: config/kibana.key
 #xpack.reporting.encryptionKey:
 
 telemetry.optIn: false
+newsfeed.enabled: false
 
 # Fleet
 xpack.fleet.isAirGapped: true
@@ -45,11 +46,16 @@ xpack.fleet.packages:
     version: latest
   - name: elastic_agent
     version: latest
+  - name: endpoint
+    version: latest
+  - name: windows
+    version: latest
 
 xpack.fleet.agentPolicies:
   - name: Fleet Server Policy
     id: fleet-server-policy
     description: Static agent policy for Fleet Server
+    is_default_fleet_server: true
     monitoring_enabled:
       - logs
       - metrics
@@ -63,3 +69,25 @@ xpack.fleet.agentPolicies:
       - name: elastic_agent-1
         package:
           name: elastic_agent
+
+  - name: Endpoint Policy
+    id: endpoint-policy
+    description: Default policy for host agents (SIEM)
+    is_default: true
+    monitoring_enabled:
+      - logs
+      - metrics
+    package_policies:
+      - name: endpoint-system-1
+        package:
+          name: system
+      - name: endpoint-windows-1
+        package:
+          name: windows
+      - name: endpoint-elastic_agent-1
+        package:
+          name: elastic_agent
+      - name: endpoint-defend-1
+        id: endpoint-defend-1
+        package:
+          name: endpoint

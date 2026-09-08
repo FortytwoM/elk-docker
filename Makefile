@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help up up-mon down restart build clean logs status ps certs setup
+.PHONY: help up up-mon down restart build clean logs status ps certs kibana-reset setup prefetch-agents
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -39,5 +39,13 @@ certs: ## Regenerate TLS certificates (resets Kibana config and Fleet Server sta
 	docker volume ls -q --filter name=fleet-server-state | xargs docker volume rm 2>/dev/null || true
 	$(COMPOSE) up tls
 
+kibana-reset: ## Reset generated Kibana config (picks up new Fleet policies; new encryption keys)
+	$(COMPOSE) stop kibana kibana-init || true
+	docker volume ls -q --filter name=kibana-config | xargs docker volume rm 2>/dev/null || true
+	$(COMPOSE) up kibana-init
+
 setup: ## Re-run user/role setup
 	$(COMPOSE) up setup
+
+prefetch-agents: ## Download Elastic Agent binaries into the local artifact cache
+	sh scripts/prefetch-agent-binaries.sh
